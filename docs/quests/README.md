@@ -1911,7 +1911,22 @@ and the second on Classic clients, which send the quest log index first; a secre
 nothing. They cover a client that keeps reporting the quest ID after the dialog closed. A page
 recorded with neither a quest ID nor a title names no quest and is not kept, since no later
 event could tie it to one. A declined quest sends neither event, so a decline reads what it did
-before. Records live ten seconds. It is a fallback, not a second dispatcher: a page the player
+before. Records normally live ten seconds. With the opt-in **Read Offers After Accepting** setting
+under Quests > When to Read, opening or declining an offer stays silent. Only a matching
+`QUEST_ACCEPTED` releases its captured offer, once per interaction. An open offer stays
+available beyond ten seconds; a closed or replaced offer expires after ten seconds. Repeated
+page events share the interaction, including suppression after a manual read. Reopening a
+repeatable or abandoned quest starts a new interaction. Changing this preference, disabling
+Read Automatically or Quests, or switching profiles discards held offers without backfilling
+them. Already queued audio follows the usual controls.
+
+Acceptance is sufficient even with Read When Window Closes on. Stop When Window Closes does
+not discard the accepted recording. Play buttons and `/spq read` still read immediately,
+and acceptance does not repeat that manual read. Progress, reward text, greetings and
+follow-up lines keep their existing behavior. The setting defaults off, so declines retain
+the existing behavior described above.
+
+It is a fallback, not a second dispatcher: a page the player
 reads in the open dialog is dispatched by the watcher as before. That page is the newest record
 of its event, whatever quest the globals named when the event arrived, and it and the earlier
 pages of the quest the watcher read are marked read; another quest's pages still wait for their

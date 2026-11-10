@@ -2,6 +2,13 @@
 
 Spoken Player until 3.0.0, when it became Spoken and took its modules into one download.
 
+## Unreleased
+
+- Add Read Offers After Accepting under Quests > When to Read. Turn it on to browse and decline
+  offers silently, then hear only the offers you accept. Play buttons still read immediately.
+  The setting defaults off; progress and reward dialogue keep their existing behavior.
+  *([rusty-key](https://github.com/rusty-key))*
+
 ## 3.8.5 — 2026-11-10
 
 - **Place stories that started on their own stop when you enter combat.** A zone or area story that

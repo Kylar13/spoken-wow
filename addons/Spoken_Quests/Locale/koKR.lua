@@ -151,3 +151,6 @@ L.QUEST_IN_PROGRESS = "진행 중"
 L.QUEST_PART_ACCEPT = "설명"
 L.QUEST_PART_COMPLETE = "완료"
 L.QUEST_PART_NO_TEXT = "이 부분의 대사를 알 수 없습니다."
+
+L.OPT_PANEL_ACCEPTED_ONLY = "Read Offers After Accepting"
+L.OPT_PANEL_ACCEPTED_ONLY_DESC = "Wait until you accept a quest before reading its offer. Play buttons still work."

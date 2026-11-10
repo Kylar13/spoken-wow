@@ -37,6 +37,15 @@ local function Tooltip(row)
     return table.concat(_G.GameTooltip.lines, "|")
 end
 
+local acceptedOffer = Row(QuestsPanel.panel.layout, VO.L.OPT_PANEL_ACCEPTED_ONLY)
+Expect("acceptance-only explains when offers read", Tooltip(acceptedOffer):find(VO.L.OPT_PANEL_ACCEPTED_ONLY_DESC, 1, true) ~= nil, true)
+VO.Addon:SetReadOnlyAcceptedQuests(true)
+VO.Addon:SetAutoplay(false); QuestsPanel.panel.layout:Refresh()
+Expect("disabled acceptance-only retains its checked value", acceptedOffer:GetChecked(), true)
+Expect("disabled acceptance-only tooltip explains autoplay", Tooltip(acceptedOffer):find(VO.L.REASON_AUTOPLAY, 1, true) ~= nil, true)
+VO.Addon:SetAutoplay(true); VO.Addon:SetReadOnlyAcceptedQuests(false)
+QuestsPanel.panel.layout:Refresh()
+
 ---------------------------------------------------------------- hidden when another way is chosen
 -- A setting for another way of showing lines is hidden, and the page closes up round it.
 -- nil for a row the page does not have, so a missing one fails rather than aborting.

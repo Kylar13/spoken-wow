@@ -151,3 +151,6 @@ L.QUEST_IN_PROGRESS = "Em andamento"
 L.QUEST_PART_ACCEPT = "Descrição"
 L.QUEST_PART_COMPLETE = "Conclusão"
 L.QUEST_PART_NO_TEXT = "Nenhum texto é conhecido para esta parte."
+
+L.OPT_PANEL_ACCEPTED_ONLY = "Read Offers After Accepting"
+L.OPT_PANEL_ACCEPTED_ONLY_DESC = "Wait until you accept a quest before reading its offer. Play buttons still work."

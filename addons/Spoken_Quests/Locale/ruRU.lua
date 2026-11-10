@@ -151,3 +151,6 @@ L.QUEST_IN_PROGRESS = "Выполняется"
 L.QUEST_PART_ACCEPT = "Описание"
 L.QUEST_PART_COMPLETE = "Завершение"
 L.QUEST_PART_NO_TEXT = "Текст этой части неизвестен."
+
+L.OPT_PANEL_ACCEPTED_ONLY = "Read Offers After Accepting"
+L.OPT_PANEL_ACCEPTED_ONLY_DESC = "Wait until you accept a quest before reading its offer. Play buttons still work."

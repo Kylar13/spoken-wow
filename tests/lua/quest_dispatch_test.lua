@@ -18,9 +18,10 @@ local failures = 0
 
 -- Observed through the player's public seam rather than by monkeypatching the queue: what
 -- the client would hear is what CLIP_STARTED reports.
-local played = {}
+local played, playedText = {}, {}
 Spoken:RegisterCallback("CLIP_STARTED", function(clip)
     table.insert(played, clip.fileName)
+    table.insert(playedText, clip.text or "")
 end)
 
 local function Expect(scenario, expected)
@@ -42,7 +43,7 @@ local function StartScenario()
     stub.Advance(10)
     -- Cleared last, so a line the previous scenario left behind cannot pass for this one's.
     Spoken:StopAll()
-    for i = #played, 1, -1 do played[i] = nil end
+    for i = #played, 1, -1 do played[i] = nil; playedText[i] = nil end
 end
 
 local quests = { 101, 102, 103 }
@@ -52,7 +53,16 @@ for _, quest in ipairs(quests) do
     lookup[string.format("%d-complete", quest)] = 1
 end
 
+local profileCallbacks = {}
+local aceDB = _G.LibStub("AceDB-3.0")
+local newDB = aceDB.New
+aceDB.New = function(...)
+    local db = newDB(...)
+    db.RegisterCallback = function(_, event, handler) profileCallbacks[event] = handler end
+    return db
+end
 VO.Addon:OnInitialize()
+aceDB.New = newDB
 local testPack = {
     SoundLengthLookupByFileName = lookup,
     GetSoundPath = function(_, fileName) return fileName .. ".ogg" end,
@@ -546,12 +556,21 @@ for _, wait in ipairs({0, 1}) do
     Expect("only the accepted guide offer reads", "102-accept")
 end
 HeldScenario()
-Offer(full); Offer(followUp); Finish(true)
+world.questText = "Offer A."
+Offer(full)
+world.questText = "Offer B."
+Offer(followUp); Finish(true)
+world.questText = "A different visible page."
 Expect("rapid offers are silent", "")
 stub.FireEvent("QUEST_ACCEPTED", full)
 stub.FireEvent("QUEST_ACCEPTED", 3, followUp)
 stub.Advance(5)
 Expect("rapid acceptances retain both identities", "104-accept, 105-accept")
+if table.concat(playedText, "|") ~= "Offer A.|Offer B." then
+    failures = failures + 1
+    print("FAIL rapid acceptances did not retain captured text")
+end
+world.questText = "Go and do the thing."
 
 HeldScenario()
 Offer(full); Finish(false); stub.Advance(11)
@@ -607,7 +626,9 @@ for _, reset in ipairs({
     function() VO.Addon:SetReadOnlyAcceptedQuests(false); VO.Addon:SetReadOnlyAcceptedQuests(true) end,
     function() VO.Addon:SetAutoplay(false); VO.Addon:SetAutoplay(true) end,
     function() Spoken:SetPartOn("quests", false); Spoken:SetPartOn("quests", true) end,
-    function() VO.Addon:RefreshConfig() end,
+    function() VO.Addon[profileCallbacks.OnProfileChanged](VO.Addon) end,
+    function() VO.Addon[profileCallbacks.OnProfileReset](VO.Addon) end,
+    function() VO.Addon[profileCallbacks.OnProfileCopied](VO.Addon) end,
 }) do
     HeldScenario(); Offer(full, 1); reset()
     stub.FireEvent("QUEST_ACCEPTED", full); Finish(true); stub.Advance(3)
@@ -630,6 +651,70 @@ VO.DialogueUIBridge = nil
 HeldScenario(); Offer(999, 1); Finish(true)
 stub.FireEvent("QUEST_ACCEPTED", 999); stub.Advance(3)
 Expect("missing audio never substitutes another quest", "")
+VO.Addon:SetReadOnlyAcceptedQuests(false)
+
+HeldScenario()
+Offer(full, 1)
+stub.FireEvent("QUEST_DETAIL"); stub.Advance(6); stub.FireEvent("QUEST_DETAIL")
+Expect("repeated detail events stay silent while open", "")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Expect("repeated detail events release one offer", "104-accept")
+stub.Advance(16)
+stub.FireEvent("QUEST_DETAIL"); stub.Advance(1)
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Expect("consumed open offer cannot replay after snapshot expiry", "104-accept")
+Finish(true)
+Offer(full, 1); stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Expect("closing and reopening starts a new repeatable interaction", "104-accept, 104-accept")
+
+HeldScenario()
+Offer(full, 1)
+VO.Addon:ReadVisibleQuest("/spq read"); stub.Advance(8)
+stub.FireEvent("QUEST_DETAIL"); stub.Advance(1)
+Expect("manual read survives repeated page events past five seconds", "104-accept")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Expect("repeated event never repeats the manual offer on acceptance", "104-accept")
+
+HeldScenario()
+Offer(full); stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Offer(full)
+world.questID = followUp
+stub.Advance(1)
+stub.FireEvent("QUEST_ACCEPTED", followUp); stub.Advance(2)
+Expect("stale Classic event after consumed offer refreshes to the new quest", "104-accept, 105-accept")
+
+HeldScenario()
+world.questID = full
+stub.FireEvent("QUEST_PROGRESS"); stub.FireEvent("QUEST_COMPLETE"); stub.FireEvent("QUEST_DETAIL")
+stub.Advance(12)
+Expect("stale held offer stays silent while turn-in records expire", "")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(2)
+Expect("stale held offer remains rejected after other records expire", "")
+Offer(followUp, 1); stub.FireEvent("QUEST_ACCEPTED", followUp); stub.Advance(2)
+Expect("rejecting stale offer preserves the subsequent offer", "105-accept")
+
+HeldScenario()
+Spoken:Pause()
+Offer(full, 1); Finish(true)
+Expect("paused held offer is silent before acceptance", "")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(1)
+Expect("acceptance respects a paused queue", "")
+Spoken:Resume(); stub.Advance(2)
+Expect("accepted offer resumes through the player", "104-accept")
+
+HeldScenario()
+Offer(full, 1)
+Spoken:SetPartOn("quests", false)
+stub.FireEvent("QUEST_ACCEPTED", full); Finish(true); stub.Advance(2)
+Expect("disabled Quests cannot read a captured offer", "")
+Spoken:SetPartOn("quests", true)
+
+HeldScenario()
+VO.Addon:SetReadOnlyAcceptedQuests(false)
+Offer(full, 0)
+VO.Addon:SetReadOnlyAcceptedQuests(true)
+stub.FireEvent("QUEST_ACCEPTED", full); Finish(true); stub.Advance(2)
+Expect("enabling acceptance-only never backfills an older offer", "")
 VO.Addon:SetReadOnlyAcceptedQuests(false)
 
 if failures > 0 then

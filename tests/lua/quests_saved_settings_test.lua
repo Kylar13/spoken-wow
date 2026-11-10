@@ -30,7 +30,7 @@ local function Seed()
         profiles = {
             Default = { Audio = { GossipFrequency = 4, GreetingFirst = true, OGThrall = true,
                 StopAudioOnDisengage = true, Autoplay = false, ReadOnlyAcceptedQuests = true } },
-            Second = { Audio = { GossipFrequency = 1, GreetingFirst = false, OGThrall = false, Autoplay = true } },
+            Second = { Audio = { GossipFrequency = 1, GreetingFirst = false, OGThrall = false, Autoplay = true, ReadOnlyAcceptedQuests = false } },
         },
         char = {
             ["Tester - Realm"] = { hasSeenGossipForNPC = HeardByGUID() },
@@ -82,7 +82,7 @@ Expect("...and is not heard from the NPC of its ID",
 
 VO.Addon.db:SetProfile("Second")
 local second = VO.Addon.db.profile.Audio
-Expect("another profile defaults acceptance-only off", second.ReadOnlyAcceptedQuests, false)
+Expect("another profile keeps acceptance-only off", second.ReadOnlyAcceptedQuests, false)
 Expect("the other profile keeps its own Read Greetings", second.GossipFrequency, VO.Enums.GossipFrequency.Always)
 Expect("...and its own NPC Voice Before Reading", second.GreetingFirst, false)
 Expect("...and its own Read Automatically", second.Autoplay, true)

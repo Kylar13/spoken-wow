@@ -16,6 +16,7 @@ local function Boot()
     stub.settingsCategories = {}; stub.ldbObjects = {}; stub.dbIcons = {}
     stub.world.questID = 0; stub.ShowPanel(nil)
     local VO = stub.LoadQuests(QUESTS, SPOKEN)
+    dofile(QUESTS .. "Options.lua")
     VO.Addon:OnInitialize()
     -- The player's own page first, as at login, so this one has a parent to nest under.
     _G.SpokenEnv.Addon:Enable()

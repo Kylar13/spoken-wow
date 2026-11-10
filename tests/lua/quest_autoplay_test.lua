@@ -102,11 +102,17 @@ for _, client in ipairs({ "16001", "11509" }) do
     Expect(client .. ": autoplay on, the dialog has no Play button", button:IsShown(), false)
     Close()
 
+    VO.Addon:SetReadOnlyAcceptedQuests(true)
     OpenGossip("We stand ready.")
-    Expect(client .. ": autoplay on, gossip reads itself", Played(played), "gossip-hash")
+    Expect(client .. ": acceptance-only leaves automatic gossip unchanged", Played(played), "gossip-hash")
     Expect(client .. ": autoplay on, the gossip window has no Play button", button:IsShown(), false)
     CloseGossip()
 
+    VO.Addon.db.profile.Audio.GossipFrequency = VO.Enums.GossipFrequency.Always
+    Open(0, "QuestFrameGreetingPanel", "QUEST_GREETING")
+    Expect(client .. ": acceptance-only leaves automatic greetings unchanged", Played(played), "greeting-hash")
+    Close()
+    VO.Addon.db.profile.Audio.GossipFrequency = VO.Enums.GossipFrequency.OncePerQuestNPC
     VO.Addon:SetAutoplay(false)
 
     Open(101, "QuestFrameDetailPanel", "QUEST_DETAIL")

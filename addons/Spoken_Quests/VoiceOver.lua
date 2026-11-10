@@ -78,7 +78,7 @@ end
 
 local function ResetOffers()
     for i = #questSnapshots, 1, -1 do
-        if questSnapshots[i].held then table.remove(questSnapshots, i) end
+        if questSnapshots[i].event == "QUEST_DETAIL" then table.remove(questSnapshots, i) end
     end
     activeOffer = nil
 end
@@ -135,7 +135,11 @@ local function PruneQuestSnapshots()
         local snapshot = questSnapshots[i]
         local expired = snapshot.held and snapshot.closedAt and now - snapshot.closedAt > SNAPSHOT_LIFETIME
             or not snapshot.held and now - snapshot.at > SNAPSHOT_LIFETIME
-        if expired then
+        if expired or snapshot.held and snapshot.dispatched then
+            if snapshot.held and snapshot.dispatched then
+                -- Keep only the open interaction's identity to suppress repeated page events.
+                snapshot.text, snapshot.guid, snapshot.targetName, snapshot.isObjectOrItem = nil, nil, nil, nil
+            end
             table.remove(questSnapshots, i)
         end
     end
@@ -148,7 +152,6 @@ local function CaptureQuestSnapshot(event, refresh)
     end
     local held = event == "QUEST_DETAIL" and Addon.db.profile.Audio.ReadOnlyAcceptedQuests
     if held and (not Addon:IsAutoplayOn() or not Addon:IsPartOn()) then return end
-    if not refresh then CloseOffer() end
     PruneQuestSnapshots()
     local questID = CurrentQuestID()
     local questTitle = QuestTitle()
@@ -174,12 +177,28 @@ local function CaptureQuestSnapshot(event, refresh)
     }
     if held then
         snapshot.held = true
-        if refresh and activeOffer then
-            for key, value in pairs(snapshot) do activeOffer[key] = value end
+        snapshot.stale = false
+        for _, earlier in ipairs(questSnapshots) do
+            if earlier.questID == questID and earlier.event ~= "QUEST_DETAIL" then snapshot.stale = true end
+        end
+        -- Repeated page events share the interaction's manual/accepted suppression.
+        local sameOffer = activeOffer and activeOffer.questID == questID and activeOffer.title == questTitle
+        if sameOffer and activeOffer.stale then snapshot.stale = true end
+        if activeOffer and (refresh or sameOffer) and not (activeOffer.dispatched and not sameOffer) then
+            if not activeOffer.dispatched then
+                for key, value in pairs(snapshot) do activeOffer[key] = value end
+            end
             return
+        end
+        CloseOffer()
+        -- A reopened offer replaces its own closed candidate, never another quest's.
+        for i = #questSnapshots, 1, -1 do
+            local old = questSnapshots[i]
+            if old.held and old.questID == questID then table.remove(questSnapshots, i) end
         end
         activeOffer = snapshot
     end
+    if not held then CloseOffer() end
     -- The same page shown again replaces its record, and keeps what was done with it, so a page
     -- read in the open window is not read again after it closes.
     for i = #questSnapshots, 1, -1 do
@@ -215,6 +234,7 @@ end
 --- quest just handed in, not an offer of its own.
 local function IsStaleOffer(i)
     local offer = questSnapshots[i]
+    if offer.stale then return true end
     if offer.event ~= "QUEST_DETAIL" then
         return false
     end
@@ -774,10 +794,15 @@ function Addon:OnInitialize()
         end
         if questID then
             for i, snapshot in ipairs(questSnapshots) do
-                if not IsStaleOffer(i) and not snapshot.dispatched and events[snapshot.event] and snapshot.questID == questID then
-                    ReplaySnapshot(snapshot, source, source == "QUEST_ACCEPTED")
+                if not snapshot.dispatched and events[snapshot.event] and snapshot.questID == questID then
+                    if IsStaleOffer(i) then
+                        snapshot.dispatched = true
+                    else
+                        ReplaySnapshot(snapshot, source, source == "QUEST_ACCEPTED")
+                    end
                 end
             end
+            PruneQuestSnapshots()
             return
         end
         wipe(newest)
@@ -800,6 +825,7 @@ function Addon:OnInitialize()
 
     local function PollAutomaticQuest()
         local state = self.autoQuestState
+        PruneQuestSnapshots()
         if self.dataModulesPending then
             Debug:Note("watcher", "pending", "quest watcher waits: the voice packs are still loading")
             return
@@ -1551,6 +1577,7 @@ function Addon:ExpectedLine(event, textIsCurrent)
         end
         return speech.text() or ""
     elseif quest then
+        if event == "QUEST_DETAIL" and self.db.profile.Audio.ReadOnlyAcceptedQuests then return nil end
         if self.db.profile.Audio.ReadAfterClose then
             return nil
         end
