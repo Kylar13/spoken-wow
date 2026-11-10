@@ -87,6 +87,8 @@ L.OPT_CMD_OPTIONS_DESC = "Opens this module's settings page"
 --------------------------------------------------------------------------------
 
 L.OPT_PANEL_AUTOPLAY = "Read Automatically"
+L.OPT_PANEL_ACCEPTED_ONLY = "Read Offers After Accepting"
+L.OPT_PANEL_ACCEPTED_ONLY_DESC = "Wait until you accept a quest before reading its offer. Play buttons still work."
 L.OPT_PANEL_STOP_ON_CLOSE = "Stop When Window Closes"
 L.OPT_PANEL_READ_AFTER_CLOSE = "Read When Window Closes"
 L.OPT_SECTION_TRACKER = "Show Play Button"

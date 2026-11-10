@@ -136,6 +136,30 @@ GossipPanel.panel.layout:Refresh()
 Expect("ticking it again brings the frequency back", greetings.dropdownDisabled, false)
 Expect("...and Read NPC Chat After Quests", followup and followup.layoutReason, nil)
 
+local accepted
+for _, child in ipairs(SettingsPanel.panel.content.children) do
+    if type(child.text) == "table" and child.text.text == VO.L.OPT_PANEL_ACCEPTED_ONLY then accepted = child end
+end
+local ace = VO.Options.table.args.General.args.Audio.args.ReadOnlyAcceptedQuests
+Expect("acceptance-only defaults off", db.Audio.ReadOnlyAcceptedQuests, false)
+Expect("acceptance-only has a checkbox", accepted ~= nil, true)
+accepted:SetChecked(true); accepted:GetScript("OnClick")(accepted)
+Expect("panel writes AceConfig's value", ace.get(), true)
+ace.set(nil, false); SettingsPanel.panel.layout:Refresh()
+Expect("AceConfig refreshes the panel", accepted:GetChecked(), false)
+ace.set(nil, true)
+VO.Addon:SetAutoplay(false); SettingsPanel.panel.layout:Refresh()
+Expect("autoplay disables acceptance checkbox with a reason", accepted.layoutReason, VO.L.REASON_AUTOPLAY)
+Expect("AceConfig disables it too", ace.disabled(), true)
+Expect("AceConfig explains disabled autoplay", ace.desc(), VO.L.REASON_AUTOPLAY)
+Expect("disabled acceptance checkbox keeps its value", ace.get(), true)
+VO.Addon:SetAutoplay(true)
+_G.Spoken:SetPartOn("quests", false); SettingsPanel.panel.layout:Refresh()
+Expect("module off disables acceptance checkbox", accepted.layoutReason, _G.Spoken:Words().REASON_PART_OFF)
+Expect("module off disables AceConfig too", ace.disabled(), true)
+_G.Spoken:SetPartOn("quests", true)
+ace.set(nil, false); SettingsPanel.panel.layout:Refresh()
+
 local entries = stub.OpenDropdown(greetings)
 local offered = {}
 for _, entry in ipairs(entries) do table.insert(offered, entry.text) end

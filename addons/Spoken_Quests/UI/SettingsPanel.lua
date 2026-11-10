@@ -52,6 +52,10 @@ function SettingsPanel:Setup()
         function() return Addon:IsAutoplayOn() end,
         function(value) Addon:SetAutoplay(value) end,
         refresh)
+    layout:Requires(layout:Checkbox(L.OPT_PANEL_ACCEPTED_ONLY, L.OPT_PANEL_ACCEPTED_ONLY_DESC,
+        function() return audio().ReadOnlyAcceptedQuests end,
+        function(value) Addon:SetReadOnlyAcceptedQuests(value) end, refresh),
+        function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
     -- NPC chat after a quest is queued only by automatic reading (Followup.lua), so with it off
     -- this does nothing either: under it, greyed, and saying why.
     layout:Indent()

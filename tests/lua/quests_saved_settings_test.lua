@@ -29,7 +29,7 @@ local function Seed()
         profileKeys = { ["Tester - Realm"] = "Default", ["Alt - Realm"] = "Second" },
         profiles = {
             Default = { Audio = { GossipFrequency = 4, GreetingFirst = true, OGThrall = true,
-                StopAudioOnDisengage = true, Autoplay = false } },
+                StopAudioOnDisengage = true, Autoplay = false, ReadOnlyAcceptedQuests = true } },
             Second = { Audio = { GossipFrequency = 1, GreetingFirst = false, OGThrall = false, Autoplay = true } },
         },
         char = {
@@ -52,6 +52,7 @@ Expect("NPC Voice Before Reading keeps its value", audio.GreetingFirst, true)
 Expect("Original Thrall Speech keeps its value", audio.OGThrall, true)
 Expect("Stop When Window Closes keeps its value", audio.StopAudioOnDisengage, true)
 Expect("Read Automatically keeps its value", audio.Autoplay, false)
+Expect("acceptance-only keeps its saved value", audio.ReadOnlyAcceptedQuests, true)
 -- The test client's AceDB has no real per-character key, so check that what it hands back is
 -- one of the saved records, not a copy, and that neither record was dropped.
 local ownRecord = false
@@ -81,6 +82,7 @@ Expect("...and is not heard from the NPC of its ID",
 
 VO.Addon.db:SetProfile("Second")
 local second = VO.Addon.db.profile.Audio
+Expect("another profile defaults acceptance-only off", second.ReadOnlyAcceptedQuests, false)
 Expect("the other profile keeps its own Read Greetings", second.GossipFrequency, VO.Enums.GossipFrequency.Always)
 Expect("...and its own NPC Voice Before Reading", second.GreetingFirst, false)
 Expect("...and its own Read Automatically", second.Autoplay, true)

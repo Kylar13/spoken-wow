@@ -495,6 +495,143 @@ world.title = "Test Quest"
 testPack.QuestIDLookup = nil
 Expect("an offer recorded under quest ID 0 is read by its accept event", "107-accept")
 
+local function HeldScenario()
+    VO.Addon:SetReadOnlyAcceptedQuests(false)
+    StartScenario()
+    VO.Addon:SetAutoplay(true)
+    VO.Addon:SetReadOnlyAcceptedQuests(true)
+end
+local function Offer(id, wait)
+    world.questID = id
+    stub.FireEvent("QUEST_DETAIL")
+    stub.Advance(wait or 0)
+end
+local function Finish(clear)
+    if clear then world.questID = 0 end
+    stub.ShowPanel(nil)
+    stub.FireEvent("QUEST_FINISHED")
+end
+
+for _, clear in ipairs({true, false}) do
+    for _, before in ipairs({true, false}) do
+        for _, readClose in ipairs({true, false}) do
+            for _, stopClose in ipairs({true, false}) do
+                HeldScenario()
+                VO.Addon.db.profile.Audio.ReadAfterClose = readClose
+                VO.Addon.db.profile.Audio.StopAudioOnDisengage = stopClose
+                Offer(full, 16)
+                Expect("held offer stays silent beyond ten seconds", "")
+                if not before then Finish(clear); stub.Advance(0.2) end
+                stub.FireEvent("QUEST_ACCEPTED", full)
+                stub.Advance(0.1)
+                Expect("matching acceptance starts the captured offer", "104-accept")
+                if before then Finish(clear) end
+                stub.FireEvent("QUEST_ACCEPTED", full)
+                stub.Advance(3)
+                Expect("close and duplicate acceptance add no read", "104-accept")
+            end
+        end
+    end
+end
+VO.Addon.db.profile.Audio.ReadAfterClose = false
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = false
+
+for _, wait in ipairs({0, 1}) do
+    HeldScenario()
+    for _, id in ipairs(quests) do Offer(id, wait); Finish(true) end
+    stub.Advance(2)
+    Expect("guide skips stay silent before acceptance", "")
+    stub.FireEvent("QUEST_ACCEPTED", quests[2])
+    stub.Advance(3)
+    Expect("only the accepted guide offer reads", "102-accept")
+end
+HeldScenario()
+Offer(full); Offer(followUp); Finish(true)
+Expect("rapid offers are silent", "")
+stub.FireEvent("QUEST_ACCEPTED", full)
+stub.FireEvent("QUEST_ACCEPTED", 3, followUp)
+stub.Advance(5)
+Expect("rapid acceptances retain both identities", "104-accept, 105-accept")
+
+HeldScenario()
+Offer(full); Finish(false); stub.Advance(11)
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(3)
+Expect("closed offers expire even with quest globals left set", "")
+
+HeldScenario()
+Offer(full, 1)
+for _, id in ipairs({0, -1, 1.5, "104", 999}) do stub.FireEvent("QUEST_ACCEPTED", id) end
+stub.FireEvent("QUEST_ACCEPTED")
+stub.Secrets(full); stub.FireEvent("QUEST_ACCEPTED", 3, full); stub.Secrets()
+stub.Advance(1)
+Expect("invalid and secret acceptances stay silent", "")
+stub.FireEvent("QUEST_ACCEPTED", 3, full); stub.Advance(3)
+Expect("Classic accepts the quest ID rather than log index", "104-accept")
+
+for _, autoplay in ipairs({true, false}) do
+    HeldScenario()
+    VO.Addon:SetAutoplay(autoplay)
+    Offer(full, 1)
+    Expect("manual read has not started automatically", "")
+    VO.Addon:ReadVisibleQuest("/spq read")
+    stub.Advance(8)
+    Expect("manual offer reads immediately", "104-accept")
+    stub.FireEvent("QUEST_ACCEPTED", full); Finish(true); stub.Advance(3)
+    Expect("acceptance never repeats a manual read", "104-accept")
+end
+HeldScenario()
+Offer(full, 1)
+VO.Addon:ReadVisibleQuest("test"); stub.Advance(2); Finish(true)
+Offer(full, 1)
+Expect("reopening a quest is silent again", "104-accept")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(3)
+Expect("a new interaction may read the same quest again", "104-accept, 104-accept")
+
+HeldScenario()
+Offer(full)
+world.questID = followUp
+stub.Advance(1)
+Expect("stabilized Classic replacement stays silent", "")
+stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(1)
+Expect("stale synchronous Classic identity cannot read", "")
+stub.FireEvent("QUEST_ACCEPTED", followUp); stub.Advance(3)
+Expect("stabilized Classic capture matches the new quest", "105-accept")
+
+HeldScenario()
+world.questID = full
+stub.FireEvent("QUEST_PROGRESS"); stub.FireEvent("QUEST_COMPLETE"); stub.FireEvent("QUEST_DETAIL")
+Finish(true); stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(5)
+Expect("stale turn-in offer is rejected, progress and reward still read", "104-progress, 104-complete")
+
+for _, reset in ipairs({
+    function() VO.Addon:SetReadOnlyAcceptedQuests(false); VO.Addon:SetReadOnlyAcceptedQuests(true) end,
+    function() VO.Addon:SetAutoplay(false); VO.Addon:SetAutoplay(true) end,
+    function() Spoken:SetPartOn("quests", false); Spoken:SetPartOn("quests", true) end,
+    function() VO.Addon:RefreshConfig() end,
+}) do
+    HeldScenario(); Offer(full, 1); reset()
+    stub.FireEvent("QUEST_ACCEPTED", full); Finish(true); stub.Advance(3)
+    Expect("settings and profile resets discard held offers", "")
+end
+
+HeldScenario()
+local deferred, muted = 0, 0
+local realMute = Spoken.MuteGameDialogueAhead
+Spoken.MuteGameDialogueAhead = function() muted = muted + 1 end
+VO.DialogueUIBridge = { Defer = function() deferred = deferred + 1; return true end }
+Offer(full, 2)
+VO.Addon:InvokeQuestHandler("QUEST_DETAIL", "test")
+Expect("held offers never defer or mute greetings", deferred == 0 and muted == 0 and "" or "unexpected side effect")
+Finish(true); stub.FireEvent("QUEST_ACCEPTED", full); stub.Advance(3)
+Expect("accepted offer bypasses replacement UI deferral", "104-accept")
+Spoken.MuteGameDialogueAhead = realMute
+VO.DialogueUIBridge = nil
+
+HeldScenario(); Offer(999, 1); Finish(true)
+stub.FireEvent("QUEST_ACCEPTED", 999); stub.Advance(3)
+Expect("missing audio never substitutes another quest", "")
+VO.Addon:SetReadOnlyAcceptedQuests(false)
+
 if failures > 0 then
     print(string.format("\n%d scenario(s) failed", failures))
     os.exit(1)

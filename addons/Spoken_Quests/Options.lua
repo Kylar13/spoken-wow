@@ -41,6 +41,20 @@ local GeneralTab =
                     get = function(info) return Addon:IsAutoplayOn() end,
                     set = function(info, value) Addon:SetAutoplay(value) end,
                 },
+                ReadOnlyAcceptedQuests = {
+                    type = "toggle",
+                    order = 1.5,
+                    width = 2,
+                    name = L.OPT_PANEL_ACCEPTED_ONLY,
+                    desc = function()
+                        if not Addon:IsPartOn() then return Spoken:Words().REASON_PART_OFF end
+                        if not Addon:IsAutoplayOn() then return L.REASON_AUTOPLAY end
+                        return L.OPT_PANEL_ACCEPTED_ONLY_DESC
+                    end,
+                    disabled = function() return not Addon:IsAutoplayOn() or not Addon:IsPartOn() end,
+                    get = function() return Addon.db.profile.Audio.ReadOnlyAcceptedQuests end,
+                    set = function(_, value) Addon:SetReadOnlyAcceptedQuests(value) end,
+                },
                 LineBreak1 = { type = "description", name = "", order = 2 },
                 GossipFrequency = {
                     type = "select",

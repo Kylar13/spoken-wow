@@ -69,6 +69,19 @@ local ResolveQuestID, NoteGossipPage
 -- for it. A page whose event arrived with neither a quest ID nor a title names no quest, and
 -- no later event could tie it to one, so it is not recorded.
 local questSnapshots = {}
+local activeOffer
+
+local function CloseOffer()
+    if activeOffer then activeOffer.closedAt = GetTime() end
+    activeOffer = nil
+end
+
+local function ResetOffers()
+    for i = #questSnapshots, 1, -1 do
+        if questSnapshots[i].held then table.remove(questSnapshots, i) end
+    end
+    activeOffer = nil
+end
 
 -- Long enough for the server to answer an accept or a turn-in, short enough that a quest
 -- accepted later some other way (an escort a party member starts) does not read an old offer.
@@ -119,17 +132,23 @@ end
 local function PruneQuestSnapshots()
     local now = GetTime()
     for i = #questSnapshots, 1, -1 do
-        if now - questSnapshots[i].at > SNAPSHOT_LIFETIME then
+        local snapshot = questSnapshots[i]
+        local expired = snapshot.held and snapshot.closedAt and now - snapshot.closedAt > SNAPSHOT_LIFETIME
+            or not snapshot.held and now - snapshot.at > SNAPSHOT_LIFETIME
+        if expired then
             table.remove(questSnapshots, i)
         end
     end
 end
 
-local function CaptureQuestSnapshot(event)
+local function CaptureQuestSnapshot(event, refresh)
     local quest = QUEST_EVENTS[event]
     if not quest then
         return
     end
+    local held = event == "QUEST_DETAIL" and Addon.db.profile.Audio.ReadOnlyAcceptedQuests
+    if held and (not Addon:IsAutoplayOn() or not Addon:IsPartOn()) then return end
+    if not refresh then CloseOffer() end
     PruneQuestSnapshots()
     local questID = CurrentQuestID()
     local questTitle = QuestTitle()
@@ -153,11 +172,19 @@ local function CaptureQuestSnapshot(event)
         targetName = targetName,
         isObjectOrItem = Utils:IsNPCObjectOrItem(),
     }
+    if held then
+        snapshot.held = true
+        if refresh and activeOffer then
+            for key, value in pairs(snapshot) do activeOffer[key] = value end
+            return
+        end
+        activeOffer = snapshot
+    end
     -- The same page shown again replaces its record, and keeps what was done with it, so a page
     -- read in the open window is not read again after it closes.
     for i = #questSnapshots, 1, -1 do
         local old = questSnapshots[i]
-        if old.event == event and old.questID == questID and old.title == questTitle then
+        if not held and old.event == event and old.questID == questID and old.title == questTitle then
             snapshot.dispatched = old.dispatched
             table.remove(questSnapshots, i)
         end
@@ -287,7 +314,7 @@ end
 --- whatever autoplay and the greeting frequency say.
 --- `snapshot` is a page replayed from the record of its event: it is read as recorded, and does
 --- not wait for DialogueUI's window, which is no longer the page's.
-function Addon:InvokeQuestHandler(event, source, manual, snapshot)
+function Addon:InvokeQuestHandler(event, source, manual, snapshot, accepted)
     local handler = self[event]
     if not handler then
         Debug:Record("handler-missing", format("No handler exists for %s", tostring(event)))
@@ -297,6 +324,14 @@ function Addon:InvokeQuestHandler(event, source, manual, snapshot)
     if not manual and event ~= "QUEST_FINISHED" and event ~= "GOSSIP_CLOSED" and not self:IsAutoplayOn() then
         Debug:Record("autoplay-off", format("Not reading %s: autoplay is off", event))
         return false
+    end
+    if event == "QUEST_DETAIL" and self.db.profile.Audio.ReadOnlyAcceptedQuests and not manual and not accepted then
+        Debug:Note("offer", "held", "Quest offer waits for acceptance")
+        return false
+    end
+    if manual and event == "QUEST_DETAIL" and activeOffer then
+        CaptureQuestSnapshot(event, true)
+        activeOffer.dispatched = true
     end
     -- Read while DialogueUI's window is still appearing, the voice would run ahead of the words
     -- it marks, so autoplay waits for the window.
@@ -358,12 +393,18 @@ function Addon:IsNever()
 end
 
 function Addon:SetAutoplay(on)
+    ResetOffers()
     self.db.profile.Audio.Autoplay = on and true or false
     -- The Play button stands in for autoplay, so it appears or goes with the setting even
     -- while a dialog is already open.
     if DialogPlayButton and DialogPlayButton.Refresh then
         DialogPlayButton:Refresh()
     end
+end
+
+function Addon:SetReadOnlyAcceptedQuests(on)
+    ResetOffers()
+    self.db.profile.Audio.ReadOnlyAcceptedQuests = on and true or false
 end
 
 --- The quest panels and the gossip frame, in the priority GetVisibleQuestEvent gives them.
@@ -456,6 +497,7 @@ local defaults = {
             -- the Play button on the window is pressed (UI/DialogPlayButton.lua) or
             -- /spq read is typed. GossipFrequency then has nothing to decide.
             Autoplay = true,
+            ReadOnlyAcceptedQuests = false,
             OGThrall = false,
             -- On, an automatic read starts when the window closes instead of when it opens.
             ReadAfterClose = false,
@@ -533,9 +575,16 @@ function Addon:OnInitialize()
         global.startedOnlyDefaultOn = true
         if global.Compendium then global.Compendium.FoundOnly = nil end
     end
+    ResetOffers()
     self:FoldGreetingsHeardByGUID()
     self.db.RegisterCallback(self, "OnProfileChanged", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
+    self.db.RegisterCallback(self, "OnProfileCopied", "RefreshConfig")
+    if Spoken and Spoken.RegisterCallback then
+        Spoken:RegisterCallback("PART_SWITCHED", function(part)
+            if part == "quests" then ResetOffers() end
+        end)
+    end
 
     StaticPopupDialogs["VOICEOVER_ERROR"] =
     {
@@ -700,17 +749,18 @@ function Addon:OnInitialize()
     --- unread, the last is the one the player was left with. The others are passed over, and
     --- stay for their own accept or turn-in. An offer recorded after its quest's own pages
     --- carries the globals of the quest just handed in, so it is not read.
-    local function ReplaySnapshot(snapshot, source)
+    local function ReplaySnapshot(snapshot, source, accepted)
         local state = self.autoQuestState
+        if snapshot.event == "QUEST_DETAIL" and self.db.profile.Audio.ReadOnlyAcceptedQuests and not accepted then return end
         snapshot.dispatched = true
         local key = PageKey(snapshot.event, snapshot.questID, snapshot.title)
-        if HandledRecently(state, key) then
+        if not snapshot.held and HandledRecently(state, key) then
             return
         end
         MarkHandled(state, key)
         Debug:Record("auto-watcher-snapshot", format("Reading %s quest %s from its event snapshot: %s",
             snapshot.event, tostring(snapshot.questID), source))
-        self:InvokeQuestHandler(snapshot.event, "event snapshot", false, snapshot)
+        self:InvokeQuestHandler(snapshot.event, "event snapshot", false, snapshot, accepted)
     end
 
     -- Index of the newest unread page of each event, refilled on every close-time replay.
@@ -723,21 +773,21 @@ function Addon:OnInitialize()
             return
         end
         if questID then
-            for _, snapshot in ipairs(questSnapshots) do
-                if not snapshot.dispatched and events[snapshot.event] and snapshot.questID == questID then
-                    ReplaySnapshot(snapshot, source)
+            for i, snapshot in ipairs(questSnapshots) do
+                if not IsStaleOffer(i) and not snapshot.dispatched and events[snapshot.event] and snapshot.questID == questID then
+                    ReplaySnapshot(snapshot, source, source == "QUEST_ACCEPTED")
                 end
             end
             return
         end
         wipe(newest)
         for i, snapshot in ipairs(questSnapshots) do
-            if not snapshot.dispatched and not snapshot.passed then
+            if not snapshot.held and not snapshot.dispatched and not snapshot.passed then
                 newest[snapshot.event] = i
             end
         end
         for i, snapshot in ipairs(questSnapshots) do
-            if not snapshot.dispatched and not snapshot.passed then
+            if not snapshot.held and not snapshot.dispatched and not snapshot.passed then
                 -- Passed over, not spent: its own QUEST_ACCEPTED or QUEST_TURNED_IN still reads it.
                 if newest[snapshot.event] ~= i or IsStaleOffer(i) then
                     snapshot.passed = true
@@ -754,6 +804,7 @@ function Addon:OnInitialize()
             Debug:Note("watcher", "pending", "quest watcher waits: the voice packs are still loading")
             return
         end
+        if not self:IsPartOn() then ResetOffers() end
         if not self:IsAutoplayOn() then
             -- Nothing to poll for: InvokeQuestHandler would refuse every read. The snapshots are
             -- dropped too, so turning autoplay back on does not replay a dialog long closed.
@@ -769,6 +820,7 @@ function Addon:OnInitialize()
         end
         local questID = CurrentQuestID()
         if questID == 0 then
+            CloseOffer()
             -- The dialog is gone. Pages it closed on with nothing dispatched for them are the
             -- whole record of the interaction, so read them before the candidate state is cleared.
             ReplayQuestSnapshots("the dialog closed before it could stabilize")
@@ -793,6 +845,15 @@ function Addon:OnInitialize()
             state.completedKey = nil
             Debug:Record("auto-watcher-stabilizing", format("Waiting for %s quest %s to finish populating", event,
                 tostring(questID)))
+            return
+        end
+
+        if event == "QUEST_DETAIL" and self.db.profile.Audio.ReadOnlyAcceptedQuests then
+            state.candidateAge = state.candidateAge + AUTO_POLL_INTERVAL
+            if state.candidateAge >= 0.4 and activeOffer and lastQuestEvent == "QUEST_DETAIL" then
+                CaptureQuestSnapshot(event, true)
+            end
+            Debug:Note("offer", key, "Quest %s waits for acceptance", tostring(questID))
             return
         end
 
@@ -893,7 +954,9 @@ function Addon:OnInitialize()
     self.questEventRecorderFrame:SetScript("OnEvent", function(_, event, questIDArg, ...)
         if event == "QUEST_FINISHED" then
             lastQuestEvent = nil
+            CloseOffer()
         elseif REPLAYED_ON[event] then
+            if not self:IsAutoplayOn() or not self:IsPartOn() then ResetOffers(); return end
             if self.dataModulesPending then
                 return
             end
@@ -904,7 +967,7 @@ function Addon:OnInitialize()
                 questIDArg = (...)
             end
             local questID = NotSecret(questIDArg)
-            if type(questID) ~= "number" or questID == 0 then
+            if type(questID) ~= "number" or questID <= 0 or questID ~= math.floor(questID) then
                 return
             end
             local succeeded, replayError = pcall(ReplayQuestSnapshots, event, questID, REPLAYED_ON[event])
@@ -1133,6 +1196,7 @@ function Addon:OnInitialize()
 end
 
 function Addon:RefreshConfig()
+    ResetOffers()
     Player:RefreshConfig()
     QuestOverlayUI:RefreshQuestLog()
     QuestOverlayUI.UpdateTrackerButtons()
@@ -1408,6 +1472,7 @@ function Addon:MuteGreetingAhead(event)
     if not (SPEECH_EVENTS[event] or quest) then
         return
     end
+    if event == "QUEST_DETAIL" and self.db.profile.Audio.ReadOnlyAcceptedQuests then return end
     -- A quest read that waits for the window to close leaves the NPC's greeting alone.
     if quest and self.db.profile.Audio.ReadAfterClose then
         return
